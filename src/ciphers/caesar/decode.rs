@@ -8,9 +8,10 @@ pub(super) fn run_caesar_decryption(ciphertext: &str) -> Vec<DecryptionAttempt> 
     let mut attempts = Vec::new();
 
     for shift in 0..26 {
+        let target_shift = shift as i8;
         let potential_plaintext: String = ciphertext
             .chars()
-            .map(|c| cipher_utils::shift_char(c, -(shift as i8)))
+            .map(|c| cipher_utils::shift_char(c, -target_shift))
             .collect();
 
         if let Some(score) = analysis::score_english_likelihood(&potential_plaintext) {

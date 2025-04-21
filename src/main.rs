@@ -2,6 +2,7 @@ use std::io::{self, Write};
 use std::process;
 
 use peekaboo::{
+    analysis, // Import the analysis module directly
     config::Config,
     decoder::{DecryptionAttempt, Decoder},
     identifier::{IdentificationResult, Identifier},
@@ -9,6 +10,7 @@ use peekaboo::{
         caesar::{CaesarDecoder, CaesarIdentifier},
         vigenere::{VigenereDecoder, VigenereIdentifier},
     },
+    text_stats,
 };
 
 
@@ -54,6 +56,25 @@ fn run_analysis_pass(
 
     println!("\n--- Identifying Cipher ---");
     println!("(Note: Statistical methods effectiveness depends on text length and settings)");
+
+    // --- Add Raw Ciphertext Chi-Squared Check ---
+    println!("\n--- Raw Ciphertext Analysis ---");
+    if let Some(chi2_score) = analysis::score_english_likelihood(ciphertext) {
+        println!("  -> Raw Ciphertext Chi-Squared Score: {:.4} (Lower is better)", chi2_score);
+        if chi2_score < 1.0 {
+            println!("     (Score < 1.0 suggests frequencies are very close to English - strong indicator of a Transposition Cipher)");
+        } else if chi2_score < 3.0 {
+            println!("     (Score suggests frequencies somewhat resemble English - possibly Transposition or simple Substitution)");
+        } else {
+            println!("     (Score suggests frequencies differ significantly from English - likely Substitution/Polyalphabetic)");
+        }
+    } else {
+        println!("  -> Raw Ciphertext Chi-Squared Score: Could not calculate (no alphabetic chars?)");
+    }
+    println!("--- End Raw Analysis ---");
+    // --- End Chi-Squared Check ---
+
+
     let mut identification_results: Vec<IdentificationResult> = Vec::new();
     let mut skipped_identifiers = 0;
 
@@ -212,6 +233,29 @@ fn main() {
     println!("\nReceived Ciphertext (Alphabetic Length: {}): \"{}\"", alpha_len, ciphertext);
 
 
+    println!("\n--- Basic Text Statistics ---");
+    if let Some(stats) = text_stats::calculate_basic_stats(ciphertext) {
+        println!("Total Characters: {}", stats.char_count_total);
+        println!("Alphabetic Characters: {}", stats.char_count_alpha);
+        println!("Word Count: {}", stats.word_count);
+        if stats.word_count > 0 {
+            println!("Min Word Length: {}", stats.min_word_length);
+            println!("Max Word Length: {}", stats.max_word_length);
+            println!("Average Word Length: {:.2}", stats.average_word_length);
+        }
+        if stats.char_count_alpha > 0 {
+            println!("Uppercase / Lowercase: {:.1}% / {:.1}%", stats.uppercase_percent, stats.lowercase_percent);
+        }
+        println!("Numeric Chars: {}", stats.char_count_numeric);
+        println!("Whitespace Chars: {}", stats.char_count_whitespace);
+        println!("Punctuation Chars: {}", stats.char_count_punctuation);
+        println!("Other Chars: {}", stats.char_count_other);
+    } else {
+        println!("Could not calculate statistics for the input text.");
+    }
+
+
+
     let mut config = Config::default();
     let mut first_run = true;
 
@@ -301,27 +345,44 @@ fn main() {
 
     // --- Determine and Print Overall Best Guess ---
 
+    const CAESAR_CHI2_PREFERENCE_THRESHOLD: f64 = 3.0;
+
     let mut best_overall_decoder_index: Option<usize> = None;
     let mut highest_normalized_confidence = -1.0;
-
+    let mut preferred_caesar_index: Option<usize> = None;
 
 
     for (index, id_result) in final_id_results.iter().enumerate() {
-
-
-        if final_top_dec_results.get(index).map_or(false, |(_, opt)| opt.is_some()) {
-            let normalized_confidence = match id_result.cipher_name.as_str() {
-                "Caesar" => 1.0 / (1.0 + id_result.confidence_score.max(0.0)),
-                "Vigenere" => id_result.confidence_score,
-                _ => 0.0,
-            };
-
-            if normalized_confidence > highest_normalized_confidence {
-                highest_normalized_confidence = normalized_confidence;
-                best_overall_decoder_index = Some(index);
+        if id_result.cipher_name == "Caesar" {
+            if final_top_dec_results.get(index).map_or(false, |(_, opt)| opt.is_some()) {
+                if id_result.confidence_score < CAESAR_CHI2_PREFERENCE_THRESHOLD {
+                    preferred_caesar_index = Some(index);
+                    break;
+                }
             }
         }
     }
+
+    if preferred_caesar_index.is_some() {
+        best_overall_decoder_index = preferred_caesar_index;
+    } else {
+
+        for (index, id_result) in final_id_results.iter().enumerate() {
+            if final_top_dec_results.get(index).map_or(false, |(_, opt)| opt.is_some()) {
+                let normalized_confidence = match id_result.cipher_name.as_str() {
+                    "Caesar" => 1.0 / (1.0 + id_result.confidence_score.max(0.0)),
+                    "Vigenere" => id_result.confidence_score,
+                    _ => 0.0,
+                };
+
+                if normalized_confidence > highest_normalized_confidence {
+                    highest_normalized_confidence = normalized_confidence;
+                    best_overall_decoder_index = Some(index);
+                }
+            }
+        }
+    }
+
 
     println!("\n--- Overall Best Guess ---");
     if let Some(index) = best_overall_decoder_index {

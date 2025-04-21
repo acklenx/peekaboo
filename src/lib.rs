@@ -7,6 +7,7 @@ pub mod ciphers;
 pub mod config;
 pub mod decoder;
 pub mod identifier;
+pub mod text_stats;
 
 // Re-export items needed by main.rs and tests
 pub use config::Config;

@@ -1,6 +1,8 @@
+# Cargo.toml
 [package]
 name = "peekaboo"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+itertools = "0.12.1" # Or latest version

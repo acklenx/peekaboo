@@ -1,3 +1,5 @@
+// src/cipher_utils.rs
+
 pub fn shift_char(c: char, shift: i8) -> char {
     if !c.is_ascii_alphabetic() {
         return c;
@@ -12,6 +14,8 @@ pub fn shift_char(c: char, shift: i8) -> char {
     shifted_char_val as u8 as char
 }
 
+// Compile this function only when testing
+#[cfg(test)]
 pub fn shift_char_string(s: &str, shift: i8) -> String {
     s.chars().map(|c| shift_char(c, shift)).collect()
 }

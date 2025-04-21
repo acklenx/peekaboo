@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::cmp::Ordering;
 
 const ENGLISH_FREQUENCIES: [f64; 26] = [
     0.08167, 0.01492, 0.02782, 0.04253, 0.12702, 0.02228, 0.02015, // A-G
@@ -8,6 +9,7 @@ const ENGLISH_FREQUENCIES: [f64; 26] = [
 ];
 pub const ENGLISH_IC: f64 = 0.0667;
 pub const RANDOM_IC: f64 = 1.0 / 26.0;
+const MIN_CHARS_FOR_MIC: usize = 5;
 
 pub fn calculate_frequencies(text: &str) -> Option<([f64; 26], usize)> {
     let mut counts = [0usize; 26];
@@ -34,6 +36,55 @@ pub fn calculate_frequencies(text: &str) -> Option<([f64; 26], usize)> {
 
     Some((frequencies, total_chars))
 }
+
+// Removed find_best_caesar_shift_mic function
+
+pub fn find_top_n_caesar_shifts_mic(column_text: &str, n_top: usize) -> Option<Vec<(u8, f64)>> {
+    let mut counts = [0usize; 26];
+    let mut text_len = 0usize;
+
+    for c in column_text.chars() {
+        if c.is_ascii_alphabetic() {
+            let index = (c.to_ascii_uppercase() as u8 - b'A') as usize;
+            if index < 26 {
+                counts[index] += 1;
+                text_len += 1;
+            }
+        }
+    }
+
+    if text_len < MIN_CHARS_FOR_MIC || n_top == 0 {
+        return None;
+    }
+
+    let observed_freq: [f64; 26] = {
+        let mut freqs = [0.0; 26];
+        for i in 0..26 {
+            freqs[i] = counts[i] as f64 / text_len as f64;
+        }
+        freqs
+    };
+
+    let mut shift_scores = Vec::with_capacity(26);
+
+    for g in 0..26 {
+        let mut current_mic_score = 0.0;
+        for i in 0..26 {
+            let observed_index = (i + g) % 26;
+            current_mic_score += ENGLISH_FREQUENCIES[i] * observed_freq[observed_index];
+        }
+        shift_scores.push((g as u8, current_mic_score));
+    }
+
+
+    shift_scores.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(Ordering::Equal));
+
+
+    shift_scores.truncate(n_top);
+
+    Some(shift_scores)
+}
+
 
 pub fn chi_squared_score(observed: &[f64; 26], expected: &[f64; 26]) -> f64 {
     let mut score = 0.0;
@@ -272,7 +323,7 @@ mod tests {
         let ic = calculate_ic(text).unwrap();
         println!("IC for longer pseudo-random text: {}", ic);
 
-        assert!(ic > 0.030 && ic < 0.040, "IC for longer pseudo-random text out of adjusted expected range"); // Adjusted range
+        assert!(ic > 0.030 && ic < 0.040, "IC for longer pseudo-random text out of adjusted expected range");
     }
 
     #[test]
@@ -306,7 +357,7 @@ mod tests {
         println!("IC Plaintext: {:.6}, IC Vigenere Ciphertext: {:.6}", ic_plain, ic_cipher);
 
         assert!(ic_cipher < ic_plain - 0.015, "IC did not decrease significantly for Vigenere");
-        assert!(ic_cipher < 0.051, "Vigenere IC did not approach random values enough (expected below ~0.051)"); // Adjusted upper bound
+        assert!(ic_cipher < 0.051, "Vigenere IC did not approach random values enough (expected below ~0.051)");
     }
 
     #[test]
@@ -319,7 +370,7 @@ mod tests {
         println!("IC for short text ('{}'): {}", short_plain, ic_short_plain);
         println!("IC for short shifted text ('{}'): {}", short_vigenere, ic_short_vig);
 
-        assert!((ic_short_plain - ENGLISH_IC).abs() < 0.01, "Short text IC was unexpectedly far from English IC for this specific sample"); // Adjusted assertion
+        assert!((ic_short_plain - ENGLISH_IC).abs() < 0.01, "Short text IC was unexpectedly far from English IC for this specific sample");
     }
 
     #[test]
@@ -332,4 +383,33 @@ mod tests {
 
     }
 
+    // Removed test_find_best_caesar_shift_mic
+
+    #[test]
+    fn test_find_top_n_caesar_shifts_mic() {
+        let plaintext = "THISCOLUMNREPRESENTSPLAINTEXTTHATWASSHIFTEDBYTHREELETTERS";
+        let key_shift: i8 = 3;
+        let ciphertext = crate::cipher_utils::shift_char_string(plaintext, key_shift);
+
+        let top3 = find_top_n_caesar_shifts_mic(&ciphertext, 3).expect("MIC failed to find top 3");
+        println!("MIC top 3 shifts: {:?}", top3);
+        assert_eq!(top3.len(), 3);
+        assert_eq!(top3[0].0, key_shift as u8, "MIC top shift was not correct");
+        assert!(top3[0].1 > top3[1].1);
+        assert!(top3[1].1 > top3[2].1);
+
+        let top1 = find_top_n_caesar_shifts_mic(&ciphertext, 1).expect("MIC failed to find top 1");
+        assert_eq!(top1.len(), 1);
+        assert_eq!(top1[0].0, key_shift as u8);
+
+        let top5 = find_top_n_caesar_shifts_mic(&ciphertext, 5).expect("MIC failed to find top 5");
+        assert_eq!(top5.len(), 5);
+
+        let short_text = "SHORT"; // Length 5
+        let top_short = find_top_n_caesar_shifts_mic(short_text, 3);
+        assert!(top_short.is_some()); // Expect Some because 5 >= MIN_CHARS_FOR_MIC (5)
+
+        let zero_n = find_top_n_caesar_shifts_mic(&ciphertext, 0);
+        assert!(zero_n.is_none());
+    }
 }

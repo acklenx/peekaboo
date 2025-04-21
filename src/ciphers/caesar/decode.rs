@@ -73,4 +73,35 @@ mod tests {
         assert_eq!(results[0].plaintext, ciphertext);
         assert_eq!(results[0].key, "0");
     }
+
+    #[test]
+    fn test_caesar_typical_text() {
+        let plaintext = "This is a fairly standard sentence for testing purposes";
+        let shift = 8;
+        let ciphertext = crate::cipher_utils::shift_char_string(plaintext, shift);
+        let results = run_caesar_decryption(&ciphertext);
+        assert!(!results.is_empty());
+        let best_result = &results[0];
+        assert_eq!(best_result.cipher_name, "Caesar");
+        assert_eq!(best_result.key, shift.to_string());
+        assert_eq!(best_result.plaintext, plaintext);
+        println!("Caesar typical text score: {}", best_result.score);
+        // Reintroduce a score check, perhaps slightly looser?
+        assert!(best_result.score < 0.5);
+    }
+
+    #[test]
+    fn test_caesar_short_text() {
+        let plaintext = "Short";
+        let shift = 15;
+        let ciphertext = crate::cipher_utils::shift_char_string(plaintext, shift);
+        let results = run_caesar_decryption(&ciphertext);
+        assert!(!results.is_empty());
+        let best_result = &results[0];
+        assert_eq!(best_result.cipher_name, "Caesar");
+        assert_eq!(best_result.key, shift.to_string());
+        assert_eq!(best_result.plaintext, plaintext);
+        // Score might be unreliable here, don't assert threshold
+        println!("Caesar short text score: {}", best_result.score);
+    }
 }

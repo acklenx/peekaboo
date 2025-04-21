@@ -55,4 +55,34 @@ mod tests {
         let ciphertext = "123 !@#";
         assert!(run_caesar_identification(ciphertext).is_none());
     }
+
+    #[test]
+    fn test_caesar_identify_typical_text() {
+        let plaintext = "This is a fairly standard sentence for testing purposes";
+        let shift = 8;
+        let ciphertext = crate::cipher_utils::shift_char_string(plaintext, shift);
+        let result = run_caesar_identification(&ciphertext).unwrap();
+        assert_eq!(result.cipher_name, "Caesar");
+        assert_eq!(result.parameters, Some(format!("Potential Shift: {}", shift)));
+        println!("Caesar typical text ID score: {}", result.confidence_score);
+        // Reintroduce score check
+        assert!(result.confidence_score < 0.5);
+    }
+
+    #[test]
+    fn test_caesar_identify_short_text() {
+        let plaintext = "Short";
+        let shift = 15;
+        let ciphertext = crate::cipher_utils::shift_char_string(plaintext, shift);
+        // Identification might fail on very short text, or give poor score
+        if let Some(result) = run_caesar_identification(&ciphertext) {
+            println!("Caesar short text ID result: {:?}", result);
+            assert_eq!(result.cipher_name, "Caesar");
+            // Correct shift should still be found if it runs
+            assert_eq!(result.parameters, Some(format!("Potential Shift: {}", shift)));
+        } else {
+            println!("Caesar short text identification returned None (as expected for very short).");
+            // This path is also acceptable, depending on internal scoring thresholds
+        }
+    }
 }

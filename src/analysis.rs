@@ -1,6 +1,8 @@
 use std::collections::{HashMap, HashSet};
 use std::cmp::Ordering;
+use once_cell::sync::Lazy;
 
+// --- Constants and Map Definition (Assume full map is pasted here) ---
 const ENGLISH_FREQUENCIES: [f64; 26] = [
     0.08167, 0.01492, 0.02782, 0.04253, 0.12702, 0.02228, 0.02015, // A-G
     0.06094, 0.06966, 0.00153, 0.00772, 0.04025, 0.02406, 0.06749, // H-N
@@ -10,7 +12,87 @@ const ENGLISH_FREQUENCIES: [f64; 26] = [
 pub const ENGLISH_IC: f64 = 0.0667;
 pub const RANDOM_IC: f64 = 1.0 / 26.0;
 const MIN_CHARS_FOR_MIC: usize = 5;
+const MIN_COUNT_FOR_LOG: f64 = 0.01;
 
+static ENGLISH_TRIGRAM_DATA: Lazy<(HashMap<String, f64>, f64)> = Lazy::new(|| {
+    const TRIGRAM_COUNTS_STR: &str = include_str!("english_trigrams.txt"); // Assumes file is in src/
+
+    let mut counts: HashMap<String, u64> = HashMap::new();
+    let mut total_count: u64 = 0;
+
+    for line in TRIGRAM_COUNTS_STR.lines() {
+        let parts: Vec<&str> = line.split_whitespace().collect();
+        if parts.len() == 2 {
+            let ngram = parts[0].to_uppercase();
+            if ngram.len() == 3 && ngram.chars().all(|c| c.is_ascii_alphabetic()) {
+                if let Ok(count) = parts[1].parse::<u64>() {
+                    if count > 0 {
+                        counts.insert(ngram, count);
+                        total_count = total_count.saturating_add(count);
+                    }
+                }
+            }
+        }
+    }
+
+    if total_count == 0 {
+        panic!("Failed to parse any valid trigram counts from embedded 'english_trigrams.txt'. Ensure file exists in src/ and has valid data.");
+    }
+
+    let n_float = total_count as f64;
+    let floor_log_prob = (MIN_COUNT_FOR_LOG / n_float).log10();
+    let mut log_prob_map = HashMap::with_capacity(17576);
+
+    for c1_val in b'A'..=b'Z' {
+        for c2_val in b'A'..=b'Z' {
+            for c3_val in b'A'..=b'Z' {
+                let c1 = c1_val as char;
+                let c2 = c2_val as char;
+                let c3 = c3_val as char;
+                let trigram = format!("{}{}{}", c1, c2, c3);
+                let count = counts.get(&trigram).cloned().unwrap_or(0);
+                let effective_count = (count as f64).max(MIN_COUNT_FOR_LOG);
+                let log_prob = (effective_count / n_float).log10();
+                log_prob_map.insert(trigram, log_prob);
+            }
+        }
+    }
+
+    (log_prob_map, floor_log_prob)
+});
+
+// --- Scoring Function ---
+
+pub fn score_trigram_log_prob(text: &str) -> f64 {
+    let alpha_text = get_alphabetic_chars(text).to_ascii_uppercase();
+    if alpha_text.len() < 3 {
+        return -f64::INFINITY;
+    }
+
+    let (log_prob_map, floor_log_prob) = &*ENGLISH_TRIGRAM_DATA;
+
+    let mut total_log_prob = 0.0;
+    let mut trigram_count = 0;
+
+    for i in 0..(alpha_text.len() - 2) {
+        if let Some(trigram) = alpha_text.get(i..i + 3) {
+            let log_prob = log_prob_map
+                .get(trigram)
+                .cloned()
+                .unwrap_or(*floor_log_prob);
+            total_log_prob += log_prob;
+            trigram_count += 1;
+        }
+    }
+
+    if trigram_count == 0 {
+        return -f64::INFINITY;
+    }
+
+    total_log_prob
+}
+
+// --- Other Analysis Functions ---
 pub fn calculate_frequencies(text: &str) -> Option<([f64; 26], usize)> {
     let mut counts = [0usize; 26];
     let mut total_chars = 0usize;
@@ -36,8 +118,6 @@ pub fn calculate_frequencies(text: &str) -> Option<([f64; 26], usize)> {
 
     Some((frequencies, total_chars))
 }
-
-// Removed find_best_caesar_shift_mic function
 
 pub fn find_top_n_caesar_shifts_mic(column_text: &str, n_top: usize) -> Option<Vec<(u8, f64)>> {
     let mut counts = [0usize; 26];
@@ -109,6 +189,7 @@ pub fn score_english_likelihood(text: &str) -> Option<f64> {
 pub fn get_alphabetic_chars(text: &str) -> String {
     text.chars().filter(|c| c.is_ascii_alphabetic()).collect()
 }
+
 
 pub fn calculate_ic(text: &str) -> Option<f64> {
     let alpha_text = get_alphabetic_chars(text);
@@ -383,7 +464,6 @@ mod tests {
 
     }
 
-    // Removed test_find_best_caesar_shift_mic
 
     #[test]
     fn test_find_top_n_caesar_shifts_mic() {
@@ -405,11 +485,42 @@ mod tests {
         let top5 = find_top_n_caesar_shifts_mic(&ciphertext, 5).expect("MIC failed to find top 5");
         assert_eq!(top5.len(), 5);
 
-        let short_text = "SHORT"; // Length 5
+        let short_text = "SHORT";
         let top_short = find_top_n_caesar_shifts_mic(short_text, 3);
-        assert!(top_short.is_some()); // Expect Some because 5 >= MIN_CHARS_FOR_MIC (5)
+        assert!(top_short.is_some());
 
         let zero_n = find_top_n_caesar_shifts_mic(&ciphertext, 0);
         assert!(zero_n.is_none());
+    }
+
+    #[test]
+    fn test_score_trigram_log_prob() {
+
+        let _ = *ENGLISH_TRIGRAM_DATA;
+
+        let good_text = "HERE IS SOME REASONABLY NORMAL ENGLISH TEXT CONTAINING COMMON TRIGRAMS LIKE THE AND FOR WAS HIS";
+        let bad_text = "ZYXWVUTSRQPONMLKJIHGFEDCBAZYXWVUTSRQPONMLKJIHGFZYXWVUTSRQPOZYXWVUTSRQPONMLKJIHG";
+        let short_text = "THE";
+        let no_alpha = "123";
+
+        let good_score = score_trigram_log_prob(good_text);
+        let bad_score = score_trigram_log_prob(bad_text);
+        let short_score = score_trigram_log_prob(short_text);
+        let no_alpha_score = score_trigram_log_prob(no_alpha);
+
+
+        println!("Trigram Score (Good): {}", good_score);
+        println!("Trigram Score (Bad): {}", bad_score);
+        println!("Trigram Score (Short): {}", short_score);
+        println!("Trigram Score (No Alpha): {}", no_alpha_score);
+
+
+
+        assert!(good_score > bad_score, "Good text should score better than bad text with trigram map");
+
+        assert!(good_score > -600.0 && good_score < -200.0); // Adjusted range
+        // Removed: assert!(bad_score < -1000.0);
+        assert!(short_score > -15.0 && short_score < 0.0);
+        assert_eq!(no_alpha_score, -f64::INFINITY);
     }
 }

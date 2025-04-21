@@ -5,4 +5,5 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-itertools = "0.12.1" # Or latest version
+itertools = "0.12.1"
+once_cell = "1.19" # Or latest version

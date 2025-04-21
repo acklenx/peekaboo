@@ -1,19 +1,16 @@
 use std::io::{self, Write};
 use std::process;
-// Removed use std::cmp::Ordering;
 
-mod analysis;
-mod cipher_utils;
-mod identifier;
-mod decoder;
-mod ciphers;
-mod config;
+use peekaboo::{
+    config::Config,
+    decoder::{DecryptionAttempt, Decoder},
+    identifier::{IdentificationResult, Identifier},
+    ciphers::{
+        caesar::{CaesarDecoder, CaesarIdentifier},
+        vigenere::{VigenereDecoder, VigenereIdentifier},
+    },
+};
 
-use crate::identifier::{Identifier, IdentificationResult};
-use crate::decoder::{Decoder, DecryptionAttempt};
-use crate::ciphers::caesar::{CaesarIdentifier, CaesarDecoder};
-use crate::ciphers::vigenere::{VigenereIdentifier, VigenereDecoder};
-use crate::config::Config;
 
 fn read_usize_input(prompt: &str, default: usize) -> usize {
     loop {
@@ -38,7 +35,6 @@ fn read_usize_input(prompt: &str, default: usize) -> usize {
     }
 }
 
-// Return tuple structure changed slightly
 fn run_analysis_pass(
     config: &Config,
     ciphertext: &str,
@@ -113,7 +109,7 @@ fn run_analysis_pass(
 
 
     println!("\n--- Attempting Decryption ---");
-    // Store tuple of (Decoder Name, Option<Top Attempt>)
+
     let mut top_results: Vec<(String, Option<DecryptionAttempt>)> = Vec::with_capacity(available_decoders.len());
 
 
@@ -185,6 +181,7 @@ fn run_analysis_pass(
         }
     }
 
+
     let actually_decrypted = top_results.iter().any(|(_, r)| r.is_some());
     if !actually_decrypted {
         println!("\nNo usable decryptions found by any available decoder during this pass.");
@@ -217,9 +214,8 @@ fn main() {
 
     let mut config = Config::default();
     let mut first_run = true;
-    // Declare results *outside* loop, but assign *after* loop finishes
-    let mut final_id_results: Vec<IdentificationResult>;
-    let mut final_top_dec_results: Vec<(String, Option<DecryptionAttempt>)>;
+
+    let final_results: (Vec<IdentificationResult>, Vec<(String, Option<DecryptionAttempt>)>);
 
 
     loop {
@@ -229,12 +225,9 @@ fn main() {
 
         let (id_results, top_dec_results) = run_analysis_pass(&config, &ciphertext, first_run);
 
-        // Store results from this pass *before* checking conditions
-        final_id_results = id_results;
-        final_top_dec_results = top_dec_results;
 
-        let identified = !final_id_results.is_empty();
-        let decrypted = final_top_dec_results.iter().any(|(_, r)| r.is_some());
+        let identified = !id_results.is_empty();
+        let decrypted = top_dec_results.iter().any(|(_, r)| r.is_some());
 
 
         if first_run && !(identified || decrypted) {
@@ -246,6 +239,7 @@ fn main() {
             let mut choice = String::new();
             if io::stdin().read_line(&mut choice).is_err() {
                 println!("Error reading input. Exiting.");
+                final_results = (id_results, top_dec_results);
                 break;
             }
 
@@ -285,19 +279,24 @@ fn main() {
                 );
 
                 println!("Configuration updated. Re-running analysis...");
-                first_run = false; // Proceed to second pass
+                first_run = false;
 
             } else {
                 println!("Exiting without trying custom settings.");
-                break; // Exit loop if user declines
+                final_results = (id_results, top_dec_results);
+                break;
             }
         } else {
-            // If it wasn't the first run, OR if the first run succeeded, we exit.
+
             println!("\nAnalysis pass complete.");
+            final_results = (id_results, top_dec_results);
             break;
         }
 
-    } // End loop
+    }
+
+
+    let (final_id_results, final_top_dec_results) = final_results;
 
 
     // --- Determine and Print Overall Best Guess ---
@@ -306,10 +305,10 @@ fn main() {
     let mut highest_normalized_confidence = -1.0;
 
 
-    // Find the ID result with the highest normalized confidence
+
     for (index, id_result) in final_id_results.iter().enumerate() {
-        // Check if the corresponding decoder actually produced a result in the *final* pass
-        // We need to map ID index to decoder index - assume they correspond 1:1 for now
+
+
         if final_top_dec_results.get(index).map_or(false, |(_, opt)| opt.is_some()) {
             let normalized_confidence = match id_result.cipher_name.as_str() {
                 "Caesar" => 1.0 / (1.0 + id_result.confidence_score.max(0.0)),
@@ -326,10 +325,9 @@ fn main() {
 
     println!("\n--- Overall Best Guess ---");
     if let Some(index) = best_overall_decoder_index {
-        // Get the corresponding top decryption result (we know it's Some)
-        // The structure is now Vec<(String, Option<DecryptionAttempt>)>
+
         if let Some(best_attempt) = &final_top_dec_results[index].1 {
-            let decoder_name = &best_attempt.cipher_name; // Use name from attempt
+            let decoder_name = &best_attempt.cipher_name;
             let score_desc = if decoder_name == "Vigenere" {
                 "(Higher is better - Trigram Score)"
             } else {
@@ -348,6 +346,7 @@ fn main() {
             println!("Cipher: {}", decoder_name);
             println!("Score: {} {}", score_str, score_desc);
             println!("Key: {}", key_preview);
+
             println!("Plaintext:");
             println!("{}", best_attempt.plaintext);
         } else {

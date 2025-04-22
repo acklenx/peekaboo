@@ -101,29 +101,33 @@ fn test_caesar_typical_text_integration() {
 fn test_caesar_hardcoded() {
     let config = Config::default();
     let decoder = CaesarDecoder::new(&config);
+    // Hardcoded expected plaintext
     let plaintext = "The quick brown dog jumps over the lazy fox";
 
     // Test case 1: Shift 3
+    // Hardcoded ciphertext verified to be correct for shift 3
     let ciphertext1 = "Wkh txlfn eurzq grj mxpsv ryhu wkh odcb ira";
     let shift1 = 3;
     let results1 = decoder.decrypt(ciphertext1);
     assert!(!results1.is_empty());
     assert_eq!(results1[0].key, shift1.to_string());
-    assert_eq!(results1[0].plaintext, plaintext, "Shift 3 failed");
+    assert_eq!(results1[0].plaintext, plaintext, "Shift 3 failed"); // Direct string compare
 
     // Test case 2: Shift 10
+    // Hardcoded ciphertext verified to be correct for shift 10
     let ciphertext2 = "Dro aesmu lbygx nyq tewzc yfob dro vkji pyh";
     let shift2 = 10;
     let results2 = decoder.decrypt(ciphertext2);
     assert!(!results2.is_empty());
     assert_eq!(results2[0].key, shift2.to_string());
-    assert_eq!(results2[0].plaintext, plaintext, "Shift 10 failed");
+    assert_eq!(results2[0].plaintext, plaintext, "Shift 10 failed"); // Direct string compare
 
     // Test case 3: Shift -5 (or 21)
+    // Hardcoded ciphertext verified to be correct for shift -5
     let ciphertext3 = "Ocz lpdxf wmjri yjb ephkn jqzm ocz gvut ajs";
     let shift3_pos = 21;
     let results3 = decoder.decrypt(ciphertext3);
     assert!(!results3.is_empty());
     assert_eq!(results3[0].key, shift3_pos.to_string());
-    assert_eq!(results3[0].plaintext, plaintext, "Shift -5 failed");
+    assert_eq!(results3[0].plaintext, plaintext, "Shift -5 failed"); // Direct string compare
 }

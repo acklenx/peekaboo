@@ -6,11 +6,11 @@ use itertools::Itertools;
 
 
 const MIN_KASISKI_SEQ_LEN_DEC: usize = 3;
-const MAX_KASISKI_KEY_LEN_DEC: usize = 20;
+const MAX_KASISKI_KEY_LEN_DEC: usize = 12; // Reduced from 20 to limit estimator search space
 const MAX_KEY_LENGTHS_TO_TRY: usize = 4;
 const DEFAULT_KEY_LENGTHS_TO_TRY: &[usize] = &[2, 3, 4, 5, 6, 7];
 const TOP_N_SHIFTS_PER_COLUMN: usize = 3;
-const MAX_VIGENERE_KEY_LEN_TO_ATTEMPT: usize = 15;
+const MAX_VIGENERE_KEY_LEN_TO_ATTEMPT: usize = 15; // Keep this filter too, though redundant if above is lower
 const PROGRESS_UPDATE_INTERVAL: usize = 10000;
 
 
@@ -46,28 +46,45 @@ pub(super) fn run_vigenere_decryption(ciphertext: &str, min_text_len: usize) -> 
         return Vec::new();
     }
 
-    let key_length_estimates = analysis::estimate_key_lengths(
+
+    let icp_estimates = analysis::estimate_key_length_ic_periodicity(
         &alpha_text,
-        MIN_KASISKI_SEQ_LEN_DEC,
+        2,
         MAX_KASISKI_KEY_LEN_DEC
     );
 
-
-    let key_lengths_to_try: Vec<usize> = if key_length_estimates.is_empty() {
-
-        DEFAULT_KEY_LENGTHS_TO_TRY.to_vec()
-    } else {
-        let top_n = key_length_estimates
+    let key_lengths_to_try: Vec<usize> = if !icp_estimates.is_empty() {
+        println!("INFO: Using key lengths from IC Periodicity Test.");
+        icp_estimates
             .iter()
             .take(MAX_KEY_LENGTHS_TO_TRY)
-            .map(|(len, _count)| *len)
-            .collect();
+            .map(|(len, _score)| *len)
+            .collect()
+    } else {
 
-        top_n
+        let kasiski_estimates = analysis::estimate_key_lengths(
+            &alpha_text,
+            MIN_KASISKI_SEQ_LEN_DEC,
+            MAX_KASISKI_KEY_LEN_DEC
+        );
+        if !kasiski_estimates.is_empty() {
+            println!("INFO: Using key lengths from Kasiski Examination.");
+            kasiski_estimates
+                .iter()
+                .take(MAX_KEY_LENGTHS_TO_TRY)
+                .map(|(len, _count)| *len)
+                .collect()
+        } else {
+
+            println!("INFO: Key length estimation inconclusive, using defaults.");
+            DEFAULT_KEY_LENGTHS_TO_TRY.to_vec()
+        }
     }
         .into_iter()
         .filter(|&len| len <= MAX_VIGENERE_KEY_LEN_TO_ATTEMPT)
         .collect();
+
+    println!("INFO: Final key lengths to attempt: {:?}", key_lengths_to_try);
 
 
     let mut attempts = Vec::new();

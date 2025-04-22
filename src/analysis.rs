@@ -9,7 +9,7 @@ const ENGLISH_FREQUENCIES: [f64; 26] = [
     0.00978, 0.02360, 0.00150, 0.01974, 0.00074,
 ];
 pub const ENGLISH_IC: f64 = 0.0667;
-pub const RANDOM_IC: f64 = 1.0 / 26.0;
+pub const RANDOM_IC: f64 = 1.0 / 26.0; // Approx 0.03846
 const MIN_CHARS_FOR_MIC: usize = 5;
 const MIN_COUNT_FOR_LOG: f64 = 0.01;
 
@@ -268,4 +268,48 @@ pub fn estimate_key_lengths(text: &str, min_len: usize, max_len: usize) -> Vec<(
     sorted_factors.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
 
     sorted_factors
+}
+
+pub fn estimate_key_length_ic_periodicity(text: &str, min_len: usize, max_len: usize) -> Vec<(usize, f64)> {
+    let alpha_text = get_alphabetic_chars(text);
+    let n = alpha_text.len();
+    let mut results = Vec::new();
+
+    if n < min_len * 2 { // Need enough text
+        return results;
+    }
+
+    for key_len in min_len..=max_len {
+        if key_len == 0 || n < key_len { continue; }
+
+        let mut total_ic_for_len = 0.0;
+        let mut valid_columns_count = 0;
+
+        for i in 0..key_len {
+            let column: String = alpha_text
+                .chars()
+                .skip(i)
+                .step_by(key_len)
+                .collect();
+
+            if let Some(ic) = calculate_ic(&column) {
+                total_ic_for_len += ic;
+                valid_columns_count += 1;
+            }
+        }
+
+        if valid_columns_count > 0 {
+            let avg_ic = total_ic_for_len / valid_columns_count as f64;
+            results.push((key_len, avg_ic));
+        }
+    }
+
+    // Sort by proximity to English IC (closer is better)
+    results.sort_by(|a, b| {
+        let diff_a = (a.1 - ENGLISH_IC).abs();
+        let diff_b = (b.1 - ENGLISH_IC).abs();
+        diff_a.partial_cmp(&diff_b).unwrap_or(Ordering::Equal)
+    });
+
+    results
 }

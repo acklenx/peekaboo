@@ -57,22 +57,49 @@ fn run_analysis_pass(
     println!("\n--- Identifying Cipher ---");
     println!("(Note: Statistical methods effectiveness depends on text length and settings)");
 
-    // --- Add Raw Ciphertext Chi-Squared Check ---
+    // --- Raw Ciphertext Analysis ---
     println!("\n--- Raw Ciphertext Analysis ---");
-    if let Some(chi2_score) = analysis::score_english_likelihood(ciphertext) {
-        println!("  -> Raw Ciphertext Chi-Squared Score: {:.4} (Lower is better)", chi2_score);
-        if chi2_score < 1.0 {
-            println!("     (Score < 1.0 suggests frequencies are very close to English - strong indicator of a Transposition Cipher)");
-        } else if chi2_score < 3.0 {
-            println!("     (Score suggests frequencies somewhat resemble English - possibly Transposition or simple Substitution)");
+    let ic_option = analysis::calculate_ic(ciphertext);
+    let chi2_option = analysis::score_english_likelihood(ciphertext);
+
+    // Report IC
+    if let Some(ic) = ic_option {
+        println!("  -> Raw Ciphertext Index of Coincidence (IC): {:.4}", ic);
+        if ic < (analysis::RANDOM_IC + 0.005) { // Close to random
+            println!("     (IC is low, suggests Polyalphabetic Cipher like Vigenere)");
+        } else if ic > (analysis::ENGLISH_IC - 0.01) { // Close to English
+            println!("     (IC is high, similar to English, suggests Substitution or Transposition)");
         } else {
-            println!("     (Score suggests frequencies differ significantly from English - likely Substitution/Polyalphabetic)");
+            println!("     (IC is intermediate)");
         }
     } else {
-        println!("  -> Raw Ciphertext Chi-Squared Score: Could not calculate (no alphabetic chars?)");
+        println!("  -> Raw Ciphertext Index of Coincidence (IC): Could not calculate");
+    }
+
+    // Report Chi-Squared
+    if let Some(chi2_score) = chi2_option {
+        println!("  -> Raw Ciphertext Chi-Squared Score: {:.4} (vs English)", chi2_score);
+        if chi2_score < 3.0 { // Significantly adjusted threshold based on testing
+            println!("     (Score < 3.0 suggests frequencies are close to English - possible Transposition Cipher)");
+        } else {
+            println!("     (Score suggests frequencies differ from English - likely Substitution/Polyalphabetic)");
+        }
+    } else {
+        println!("  -> Raw Ciphertext Chi-Squared Score: Could not calculate");
+    }
+
+    // Check for Monoalphabetic Substitution Signature
+    if let (Some(ic), Some(chi2_score)) = (ic_option, chi2_option) {
+        // Thresholds might need tuning
+        const MONO_IC_LOWER_THRESHOLD: f64 = 0.058; // Slightly below English
+        const MONO_CHI2_LOWER_THRESHOLD: f64 = 5.0; // Reasonably different from English
+
+        if ic > MONO_IC_LOWER_THRESHOLD && chi2_score > MONO_CHI2_LOWER_THRESHOLD {
+            println!("  -> Combined Check: High IC + High Chi2 -> **Possible Monoalphabetic Substitution**");
+        }
     }
     println!("--- End Raw Analysis ---");
-    // --- End Chi-Squared Check ---
+    // --- End Raw Ciphertext Analysis ---
 
 
     let mut identification_results: Vec<IdentificationResult> = Vec::new();
@@ -113,9 +140,18 @@ fn run_analysis_pass(
     } else {
 
         let best_guess = identification_results.iter().min_by(|a, b| {
-            let score_a = if a.cipher_name == "Caesar" { a.confidence_score } else { 1.0 - a.confidence_score };
-            let score_b = if b.cipher_name == "Caesar" { b.confidence_score } else { 1.0 - b.confidence_score };
-            score_a.partial_cmp(&score_b).unwrap_or(std::cmp::Ordering::Equal)
+            // Use the corrected Vigenere confidence score (higher is better)
+            let score_a = match a.cipher_name.as_str() {
+                "Caesar" => 1.0 / (1.0 + a.confidence_score.max(0.0)), // Normalize Chi2
+                "Vigenere" => a.confidence_score, // Already 0-1, higher is better
+                _ => 0.0,
+            };
+            let score_b = match b.cipher_name.as_str() {
+                "Caesar" => 1.0 / (1.0 + b.confidence_score.max(0.0)), // Normalize Chi2
+                "Vigenere" => b.confidence_score, // Already 0-1, higher is better
+                _ => 0.0,
+            };
+            score_b.partial_cmp(&score_a).unwrap_or(std::cmp::Ordering::Equal) // Higher normalized score is better
         });
 
         if let Some(best) = best_guess {

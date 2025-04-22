@@ -2,6 +2,7 @@ use peekaboo::analysis::*;
 use peekaboo::cipher_utils;
 
 
+
 #[test]
 fn test_get_alphabetic_chars() {
     assert_eq!(get_alphabetic_chars("Hello 123 World!"), "HelloWorld");
@@ -234,4 +235,40 @@ fn test_score_trigram_log_prob_test() {
 
     assert!(short_score > -15.0 && short_score < 0.0);
     assert_eq!(no_alpha_score, -f64::INFINITY);
+}
+
+#[test]
+fn test_estimate_key_length_ic_periodicity() {
+
+    let ciphertext = "QPWKALVRXCQZIKGKGIGNOREQVXURPJTONDOCBUGQNGRSC";
+    let results = estimate_key_length_ic_periodicity(ciphertext, 2, 10);
+    println!("IC Periodicity Results (Key=HILL): {:?}", results);
+    assert!(!results.is_empty());
+    assert!(results.iter().any(|(len, _score)| *len == 4), "Length 4 was not found in IC Periodicity results");
+
+
+    let ciphertext_long = "CBGRXKQIWPSUYENEKDPELSZNAGMFWEAKDPJDQSHEYPGVXJURTJLFMSHRPEEVEPKWPBBTVOVPHISBUGPMTOTKONAGMFWENAGMFWEUEIWFEALHWPEBBTOTXHERSIMGMMAGGQVXJURTRQAPGCKBB";
+    let results_long = estimate_key_length_ic_periodicity(ciphertext_long, 2, 15);
+    println!("IC Periodicity Results (Key=CRYPTO): {:?}", results_long);
+    assert!(!results_long.is_empty());
+    let result_6 = results_long.iter().find(|(len, _score)| *len == 6);
+    assert!(result_6.is_some(), "Length 6 was not found for long text");
+
+
+
+    let random_text = "POIEUYTREWQASDFGHJKLMNBVCXZLKJHGFDSAPOIUYTREWQMNBVCXZLKJHGFDSAPOIUYTREWQZAQXSWCDEVF RBGTNHYMJUKILOP";
+    let results_rand = estimate_key_length_ic_periodicity(random_text, 2, 10);
+    println!("IC Periodicity Results (Random): {:?}", results_rand);
+    assert!(!results_rand.is_empty());
+
+    assert!(
+        results_rand.iter().all(|(_, avg_ic)| *avg_ic < 0.070),
+        "Average IC for random text was unexpectedly high for some length"
+    );
+
+
+    let short_text = "SHORTTEXT";
+    let results_short = estimate_key_length_ic_periodicity(short_text, 2, 5);
+
+    assert!(!results_short.is_empty());
 }
